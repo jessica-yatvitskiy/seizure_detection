@@ -8,6 +8,7 @@ import os
 import time
 import argparse
 from datetime import datetime
+from scipy import signal
 from multiprocessing import Process, Array
 import mne
 import math
@@ -21,7 +22,7 @@ LOOP_STEP = WINDOW_DUR-WINDOW_OVERLAP
 
 
 
-MAX_CONCURRENT_PROCESSES=10
+MAX_CONCURRENT_PROCESSES=8
 
 #INPUT_DATA_FILE="data_meg_mag_notch_filtered_JV.fif"
 
@@ -56,11 +57,14 @@ def compute_coh_vals_someWinds_currChanPair(chanInd0_data,chanInd1_data,start_ti
     for windStartTime0 in range(start_time, end_time , window_dur): #iterate through all time window
         coh_vals_currPair = []
         for windStartTime1 in range(max(windStartTime0-jiggling_length, 0), min(windStartTime0+window_dur+jiggling_length,tot_time), jiggling_length): #iterate through each 5 sec window starting from 1000 ms before start of current window of 1st chan to 1000 ms after end of current window of first chan
+            print("debug: in the loop") 
             chanInd0_seg = chanInd0_data[windStartTime0:windStartTime0+window_dur]
             chanInd1_seg = chanInd1_data[windStartTime1:windStartTime1+window_dur]
             if (len(chanInd0_seg)!=len(chanInd1_seg)):
                  continue
-            coh_winds_currPair_currWind1, freqs = plt.cohere(chanInd0_seg, chanInd1_seg, Fs=sampling_frequency,NFFT=250 ) #call plt.cohere on current window/segment of 1st chan and on current window/segment of 2nd chan
+            print("debug: before cohere") 
+#            coh_winds_currPair_currWind1, freqs = plt.cohere(chanInd0_seg, chanInd1_seg, Fs=sampling_frequency,NFFT=250 ) #call plt.cohere on current window/segment of 1st chan and on current window/segment of 2nd chan
+            freqs,coh_winds_currPair_currWind1 = signal.coherence(chanInd0_seg, chanInd1_seg, fs=sampling_frequency,nfft=250,nperseg=250)
             print("debug: after cohere num_freqs=",len(freqs)) 
             #compute mean of coherence vals returned by plt.cohere (which returns one coherence val per frequency
             #this mean represents the coh val of the current 2 chan segments
