@@ -23,7 +23,7 @@ LOOP_STEP = WINDOW_DUR-WINDOW_OVERLAP
 
 
 MAX_CONCURRENT_PROCESSES=8
-debug_flag=0
+debug_mode=False
 
 #INPUT_DATA_FILE="data_meg_mag_notch_filtered_JV.fif"
 
@@ -34,7 +34,7 @@ def process_arguments():
    parser.add_argument('--input_data_file',action='store',dest='input_data_file',help='input data file',default='');
    parser.add_argument('--tmp_data_dir',action='store',dest='tmp_data_dir',help='directory for temporary memory-mapped files',default='');
    parser.add_argument('--max_channels_to_process',action='store',dest='max_channels_to_process',help='maximum number of channels to process',type=int, default='-1');
-   parser.add_argument('--debug',action='store',dest='debug_flag',help='output debugging info if set to 1',type=int, default='0');
+   parser.add_argument('--debug',action='store_true',dest='debug',help='output debugging info if specified');
    args=parser.parse_args()	
    if args.input_data_dir:
      	args.input_data_dir=args.input_data_dir+"/"
@@ -52,12 +52,11 @@ def wait_for_results(worker_processes):
        p.join()
     return
 
-def compute_coh_vals_someWinds_currChanPair(chanInd0_data,chanInd1_data,start_time,end_time,start_window_index,window_dur,jiggling_length,sampling_frequency,debug_flag_param,coh_array):
-    debug_flag=debug_flag_param
+def compute_coh_vals_someWinds_currChanPair(chanInd0_data,chanInd1_data,start_time,end_time,start_window_index,window_dur,jiggling_length,sampling_frequency,debug_mode,coh_array):
     tot_time=len(chanInd1_data)
     window_index=start_window_index
 
-    if debug_flag==1:
+    if debug_mode==True:
          print("debug: in compute tot_time ",tot_time," window_index ",window_index," jiggling_length ",jiggling_length," window_dur ",window_dur," start_time ",start_time," end_time ",end_time)
 
     for windStartTime0 in range(start_time, end_time , window_dur): #iterate through all time window
@@ -67,11 +66,11 @@ def compute_coh_vals_someWinds_currChanPair(chanInd0_data,chanInd1_data,start_ti
             chanInd1_seg = chanInd1_data[windStartTime1:windStartTime1+window_dur]
             if (len(chanInd0_seg)!=len(chanInd1_seg)):
                  continue
-            if debug_flag==1:
+            if debug_mode==True:
                  print("debug: before cohere") 
 #            coh_winds_currPair_currWind1, freqs = plt.cohere(chanInd0_seg, chanInd1_seg, Fs=sampling_frequency,NFFT=250 ) #call plt.cohere on current window/segment of 1st chan and on current window/segment of 2nd chan
             freqs,coh_winds_currPair_currWind1 = signal.coherence(chanInd0_seg, chanInd1_seg, fs=sampling_frequency,nfft=250,nperseg=250)
-            if debug_flag==1:
+            if debug_mode==True:
                 print("debug: after cohere num_freqs=",len(freqs)) 
             #compute mean of coherence vals returned by plt.cohere (which returns one coherence val per frequency
             #this mean represents the coh val of the current 2 chan segments
@@ -81,7 +80,7 @@ def compute_coh_vals_someWinds_currChanPair(chanInd0_data,chanInd1_data,start_ti
             coh_val_currPair_currWind1 = mean_of_windMeans_currPair_currWind1/len(coh_winds_currPair_currWind1)
             coh_vals_currPair.append(coh_val_currPair_currWind1) #add coh val of the current 2 chan segments to array
         coh_array[window_index]=max(coh_vals_currPair)
-        if debug_flag==1:
+        if debug_mode==True:
             print("debug: after windStartTime0=",windStartTime0) 
         window_index+=1
     return
@@ -91,9 +90,9 @@ def request_coh_vals_someWinds_currChanPair(chanInd0_data,chanInd1_data,start_ti
         if (len(worker_processes) > MAX_CONCURRENT_PROCESSES):
             worker_processes[0].join()
             worker_processes.pop(0)   
-        if debug_flag==1:
+        if debug_mode==True:
              print("debug: before Process, max processes ",MAX_CONCURRENT_PROCESSES)
-        p=Process(target=compute_coh_vals_someWinds_currChanPair, args=(chanInd0_data, chanInd1_data,start_time,end_time,start_window_index,window_dur,jiggling_length,sampling_frequency,debug_flag,coh_array))
+        p=Process(target=compute_coh_vals_someWinds_currChanPair, args=(chanInd0_data, chanInd1_data,start_time,end_time,start_window_index,window_dur,jiggling_length,sampling_frequency,debug_mode,coh_array))
         p.start()
         worker_processes.append(p)
     return
@@ -103,7 +102,7 @@ def request_coh_vals_someWinds_currChanPair(chanInd0_data,chanInd1_data,start_ti
 if __name__ == '__main__': 
    args=process_arguments()
 
-   debug_flag=args.debug_flag
+   debug_mode=args.debug
    
    print ("start at ", datetime. now())
    #Get neural data
