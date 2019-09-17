@@ -23,6 +23,7 @@ LOOP_STEP = WINDOW_DUR-WINDOW_OVERLAP
 
 
 MAX_CONCURRENT_PROCESSES=8
+debug_flag=0
 
 #INPUT_DATA_FILE="data_meg_mag_notch_filtered_JV.fif"
 
@@ -33,6 +34,7 @@ def process_arguments():
    parser.add_argument('--input_data_file',action='store',dest='input_data_file',help='input data file',default='');
    parser.add_argument('--tmp_data_dir',action='store',dest='tmp_data_dir',help='directory for temporary memory-mapped files',default='');
    parser.add_argument('--max_channels_to_process',action='store',dest='max_channels_to_process',help='maximum number of channels to process',type=int, default='-1');
+   parser.add_argument('--debug',action='store',dest='debug_flag',help='output debugging info if set to 1',type=int, default='0');
    args=parser.parse_args()	
    if args.input_data_dir:
      	args.input_data_dir=args.input_data_dir+"/"
@@ -50,22 +52,27 @@ def wait_for_results(worker_processes):
        p.join()
     return
 
-def compute_coh_vals_someWinds_currChanPair(chanInd0_data,chanInd1_data,start_time,end_time,start_window_index,window_dur,jiggling_length,sampling_frequency,coh_array):
+def compute_coh_vals_someWinds_currChanPair(chanInd0_data,chanInd1_data,start_time,end_time,start_window_index,window_dur,jiggling_length,sampling_frequency,debug_flag_param,coh_array):
+    debug_flag=debug_flag_param
     tot_time=len(chanInd1_data)
     window_index=start_window_index
-    print("debug: in compute tot_time ",tot_time," window_index ",window_index," jiggling_length ",jiggling_length," window_dur ",window_dur," start_time ",start_time," end_time ",end_time)
+
+    if debug_flag==1:
+         print("debug: in compute tot_time ",tot_time," window_index ",window_index," jiggling_length ",jiggling_length," window_dur ",window_dur," start_time ",start_time," end_time ",end_time)
+
     for windStartTime0 in range(start_time, end_time , window_dur): #iterate through all time window
         coh_vals_currPair = []
         for windStartTime1 in range(max(windStartTime0-jiggling_length, 0), min(windStartTime0+window_dur+jiggling_length,tot_time), jiggling_length): #iterate through each 5 sec window starting from 1000 ms before start of current window of 1st chan to 1000 ms after end of current window of first chan
-            print("debug: in the loop") 
             chanInd0_seg = chanInd0_data[windStartTime0:windStartTime0+window_dur]
             chanInd1_seg = chanInd1_data[windStartTime1:windStartTime1+window_dur]
             if (len(chanInd0_seg)!=len(chanInd1_seg)):
                  continue
-            print("debug: before cohere") 
+            if debug_flag==1:
+                 print("debug: before cohere") 
 #            coh_winds_currPair_currWind1, freqs = plt.cohere(chanInd0_seg, chanInd1_seg, Fs=sampling_frequency,NFFT=250 ) #call plt.cohere on current window/segment of 1st chan and on current window/segment of 2nd chan
             freqs,coh_winds_currPair_currWind1 = signal.coherence(chanInd0_seg, chanInd1_seg, fs=sampling_frequency,nfft=250,nperseg=250)
-            print("debug: after cohere num_freqs=",len(freqs)) 
+            if debug_flag==1:
+                print("debug: after cohere num_freqs=",len(freqs)) 
             #compute mean of coherence vals returned by plt.cohere (which returns one coherence val per frequency
             #this mean represents the coh val of the current 2 chan segments
             mean_of_windMeans_currPair_currWind1 = 0
@@ -73,9 +80,9 @@ def compute_coh_vals_someWinds_currChanPair(chanInd0_data,chanInd1_data,start_ti
                mean_of_windMeans_currPair_currWind1 += np.mean(coh_wind)
             coh_val_currPair_currWind1 = mean_of_windMeans_currPair_currWind1/len(coh_winds_currPair_currWind1)
             coh_vals_currPair.append(coh_val_currPair_currWind1) #add coh val of the current 2 chan segments to array
-            print("debug: after cohere mean=",coh_val_currPair_currWind1) 
         coh_array[window_index]=max(coh_vals_currPair)
-        print("debug: after windStartTime0=",windStartTime0) 
+        if debug_flag==1:
+            print("debug: after windStartTime0=",windStartTime0) 
         window_index+=1
     return
 
@@ -84,18 +91,19 @@ def request_coh_vals_someWinds_currChanPair(chanInd0_data,chanInd1_data,start_ti
         if (len(worker_processes) > MAX_CONCURRENT_PROCESSES):
             worker_processes[0].join()
             worker_processes.pop(0)   
-        print("debug: before Process, max processes ",MAX_CONCURRENT_PROCESSES)
-        p=Process(target=compute_coh_vals_someWinds_currChanPair, args=(chanInd0_data, chanInd1_data,start_time,end_time,start_window_index,window_dur,jiggling_length,sampling_frequency,coh_array))
+        if debug_flag==1:
+             print("debug: before Process, max processes ",MAX_CONCURRENT_PROCESSES)
+        p=Process(target=compute_coh_vals_someWinds_currChanPair, args=(chanInd0_data, chanInd1_data,start_time,end_time,start_window_index,window_dur,jiggling_length,sampling_frequency,debug_flag,coh_array))
         p.start()
-        print("debug: after process start")
         worker_processes.append(p)
-#        p.join()
     return
 
    
 
 if __name__ == '__main__': 
    args=process_arguments()
+
+   debug_flag=args.debug_flag
    
    print ("start at ", datetime. now())
    #Get neural data
@@ -157,8 +165,6 @@ if __name__ == '__main__':
            coh_vals_currWind_currChan = []
            for chanInd1 in range(min_chanInd1,max_chanInd1+1): #iterate through all channels
                coh_val_currPair=coh_arrays[chan_pair_index][window_index]
-               if (coh_val_currPair!=0 and coh_val_currPair!=1):
-                   print("debug coh_val_currPair=",coh_val_currPair)
                chan_pair_index+=1
                #add this coh val to list of vals of coherence between current 1st/main chan (chan in 2nd-outer-most loop) and all other chans
                coh_vals_currWind_currChan.append(coh_val_currPair)
@@ -211,7 +217,8 @@ if __name__ == '__main__':
        ax2.set_xticklabels(ax_labels)
 
        #Create colorbar
-       CBI = coh_fig.colorbar(img, orientation='horizontal', shrink=0.8)
+       img.set_clim(0,1)
+       CBI = coh_fig.colorbar(img, orientation='horizontal', shrink=0.8,extend='both',spacing='uniform')
 
        #Save fig in its own file
        coh_fig.savefig(args.output_data_dir+'coh_pic%04d.png'%figNum)
