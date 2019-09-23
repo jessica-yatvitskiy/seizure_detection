@@ -14,10 +14,23 @@ WINDOW_DUR = 500
 #NUM_CHANS=102
 seiz_startTimes=[694000]
 seiz_endTimes=[738000]
-output_path="C:/Lab/Coh/Output/cohPlot.png"
+
+def process_arguments():
+   parser = argparse.ArgumentParser(description='Parameters of plot coherence')
+   parser.add_argument('--output_data_dir',action='store',dest='output_data_dir',help='output data directory',default='');
+   parser.add_argument('--input_data_dir',action='store',dest='input_data_dir',help='input data directory',default='')
+   args=parser.parse_args()
+   if args.input_data_dir:
+     	args.input_data_dir=args.input_data_dir+"/"
+   if args.output_data_dir:
+     	args.output_data_dir=args.output_data_dir+"/"
+   return args
+
+args=process_arguments()
+output_path=args.output_data_dir+"cohPlot.png"
 coh_vals_allWinds_allChans=[]
 
-f=open("data_array1.txt","r")
+f=open(args.input_data_dir+"data_array1.txt","r")
 lines=f.readlines()
 num_lines=len(lines)
 num_chans=int(lines[0])

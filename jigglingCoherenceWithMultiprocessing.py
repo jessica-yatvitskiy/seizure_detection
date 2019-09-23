@@ -173,7 +173,7 @@ if __name__ == '__main__':
        window_index+=1
 
    print ("done building matrix at ", datetime. now())
-   f=open("data_array1.txt","w+")
+   f=open(args.output_data_dir+"data_array1.txt","w+")
    #num_winds = int(tot_time/WINDOW_DUR)
    #f.write(num_winds)
    f.write(str(num_chans)+"\n")
