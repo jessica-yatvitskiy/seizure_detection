@@ -10,6 +10,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import re
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
+import pickle
 
 SEIZ_START_TIME=694000
 SEIZ_END_TIME=738000
@@ -26,7 +27,13 @@ def process_arguments():
    parser.add_argument('--wind_dur',action='store',dest='wind_dur',help='wind_dur',default='')
    parser.add_argument('--look_ahead_msec',action='store',dest='look_ahead_msec',help='look_ahead_msec',default='30000')
 
+
    args=parser.parse_args()
+
+   if args.training_output_dir:
+      args.training_output_dir=args.training_output_dir+"/"
+   if not  args.training_output_file:
+      raise Exception ('training_output_file was not defined')
    return args
 
 #Computes the average of all of the values within the specified array
@@ -110,5 +117,4 @@ if __name__ == '__main__':
     clf = LinearDiscriminantAnalysis()
     features=list(zip(*features)) #swap dimentions of features
     clf.fit(features, y_train)
-    LinearDiscriminantAnalysis(n_components=None, priors=None, shrinkage=None, solver='svd', store_covariance=False, tol=0.0001)
- solver='svd', store_covariance=False, tol=0.0001)
+    pickle.dump(clf, open(args.training_output_dir+args.training_output_file, 'wb'))

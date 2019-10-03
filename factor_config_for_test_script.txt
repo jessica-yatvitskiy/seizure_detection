@@ -1,0 +1,6 @@
+coherence
+compute_ave_across_time
+data_meg_mag_notch_filtered_JV_coh_all_ch.npy
+num_hfos
+compute_ave_across_time
+data_meg_mag_notch_filtered_JV_num_hfos_all_ch.npy
