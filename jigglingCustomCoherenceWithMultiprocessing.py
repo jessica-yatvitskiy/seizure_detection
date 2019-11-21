@@ -13,10 +13,6 @@ import matplotlib.pyplot as plt
 from multiprocessing import Process, Array
 
 #Set constants
-WINDOW_DUR = 500 # ms
-JIGGLING_LENGTH = 100 # ms
-WINDOW_OVERLAP = 0
-LOOP_STEP = WINDOW_DUR-WINDOW_OVERLAP
 MAX_CONCURRENT_PROCESSES=5
 
 debug_mode=False
@@ -28,6 +24,9 @@ def process_arguments():
    parser.add_argument('--input_data_dir',action='store',dest='input_data_dir',help='input data directory',default='');
    parser.add_argument('--input_data_file',action='store',dest='input_data_file',help='input data file',default='');
    parser.add_argument('--output_matrix_file',action='store',dest='output_matrix_file',help='file with computed coherence matrix',default='');
+   parser.add_argument('--window_dur',action='store',dest='window_dur',help='window duration',default='500',type=int);
+   parser.add_argument('--jiggling_length',action='store',dest='jiggling_length',help='jiggling length',default='100',type=int);
+   parser.add_argument('--window_overlap',action='store',dest='window_overlap',help='window overlap',default='0',type=int);
    parser.add_argument('--tmp_data_dir',action='store',dest='tmp_data_dir',help='directory for temporary memory-mapped files',default='');
    parser.add_argument('--max_channels_to_process',action='store',dest='max_channels_to_process',help='maximum number of channels to process',type=int, default='-1');
    parser.add_argument('--plot_matrices_across_time',action='store_true',dest='plot_matrices_across_time',help='plot coherence matrices for each time window, if specified',default=False);
@@ -53,24 +52,23 @@ def wait_for_results(worker_processes):
     return
 
 #start a separate process to compute coherence for a subset of time windows, between  start_time and end_time, for all channels
-def request_coherence_some_windows_all_channels(data,start_time, end_time, total_time, num_chans, window_dur, jiggling_length, sampling_frequency, debug_mode, coh_arrays,worker_processes):
+def request_coherence_some_windows_all_channels(data,start_window,start_time, end_time, total_time, num_chans, window_dur, jiggling_length, window_loop_step, sampling_frequency, debug_mode, coh_arrays,worker_processes):
     if debug_mode:
          print("debug: before Process, max processes ", MAX_CONCURRENT_PROCESSES)
-    p = Process(target=compute_coherence_some_windows_all_channels, args=(data,start_time, end_time, total_time, num_chans, window_dur, jiggling_length, sampling_frequency, debug_mode, coh_arrays))
+    p = Process(target=compute_coherence_some_windows_all_channels, args=(data,start_window,start_time, end_time, total_time, num_chans, window_dur, jiggling_length, window_loop_step, sampling_frequency, debug_mode, coh_arrays))
     p.start()
     worker_processes.append(p)
     return
 
 #Computes coherence arrays for certain number of channels across certain time period (specified in method parameters)
-def compute_coherence_some_windows_all_channels(data,start_time, end_time, total_time, num_chans, window_dur, jiggling_length, sampling_frequency, debug_mode, coh_arrays):
+def compute_coherence_some_windows_all_channels(data,start_window, start_time, end_time, total_time, num_chans, window_dur, jiggling_length, window_loop_step, sampling_frequency, debug_mode, coh_arrays):
 
    state_initialized_flag=False
-   max_time_with_preprocessed_coherence=-1
    coherence_states={}
-   window_index=start_time//window_dur
+   window_index=start_window
 
    #Uses modified version of scipy coherence method (found in spectral.py) to compete coherence between each pair of channels
-   for wind_start_time0 in range(start_time, end_time-window_dur+1 , window_dur): #iterate through all full time windows within given period of time
+   for wind_start_time0 in range(start_time, end_time-window_dur+1 , window_loop_step): #iterate through all full time windows within given period of time
        coh_vals_currWind_allChans = []
        chan_pair_index=0
        for chan_ind0 in range(0,num_chans): #iterate through all channels
@@ -80,20 +78,30 @@ def compute_coherence_some_windows_all_channels(data,start_time, end_time, total
                      coh_val_currPair = 1
                 else:
                      coh_vals_currPair = []
-                     for wind_start_time1 in range(max(wind_start_time0-jiggling_length, 0), min(wind_start_time0+window_dur+jiggling_length,total_time-window_dur+1), jiggling_length): #iterate through each window of window duration msec, starting from jiggling_length msec before start of current window to jiggling_length msec after end of current window
+                     range_start=max(wind_start_time0-jiggling_length, 0)
+                     if (jiggling_length==0):
+                         range_end=range_start+1
+                         increment=1 
+                     else:
+                         range_end=min(wind_start_time0+window_dur+jiggling_length+1,total_time-window_dur+1)
+                         increment=jiggling_length
+                     for wind_start_time1 in range(range_start, range_end, increment): #iterate through each window of window duration msec, starting from jiggling_length msec before start of current window to jiggling_length msec after end of current window
                           chan_ind0_seg = data[chan_ind0][wind_start_time0:wind_start_time0+window_dur]
                           chan_ind1_seg = data[chan_ind1][wind_start_time1:wind_start_time1+window_dur]
                           #Uses modified version of scipy coherence method to compute coherence for current pair of channels
+                          if window_dur >= 512:
+                              nfft=256
+                          else:
+                              nfft=int(window_dur/2)
+                          nperseg=nfft
                           if (state_initialized_flag==False):
-                                 initial_coherence_state=spectral.compute_initial_coherence_state(chan_ind0_seg,nfft=250,nperseg=250)
+                                 initial_coherence_state=spectral.compute_initial_coherence_state(chan_ind0_seg,nfft=nfft,nperseg=nperseg)
                                  state_initialized_flag=True
-                          if (wind_start_time1 > max_time_with_preprocessed_coherence):
+                          if coherence_states.get(wind_start_time1)==None:
                                  compute_coherence_states_for_time_window(coherence_states,data,wind_start_time1,window_dur,num_chans,sampling_frequency,initial_coherence_state)
-                                 max_time_with_preprocessed_coherence=wind_start_time1
                                  remove_old_coherence_states(coherence_states,wind_start_time1-2*window_dur)
-                          if (wind_start_time0 > max_time_with_preprocessed_coherence):
+                          if coherence_states.get(wind_start_time0)==None:
                                  compute_coherence_states_for_time_window(coherence_states,data,wind_start_time0,window_dur,num_chans,sampling_frequency,initial_coherence_state)
-                                 max_time_with_preprocessed_coherence=wind_start_time0
                                  remove_old_coherence_states(coherence_states,wind_start_time0-2*window_dur)
                           freqs,coh_winds_currPair_currWind1 = spectral.compute_coherence_from_states(get_coherence_state_for_channel(coherence_states,chan_ind0,wind_start_time0),get_coherence_state_for_channel(coherence_states,chan_ind1,wind_start_time1))
                           #compute mean of coherence vals returned by plt.cohere (which returns one coherence val per frequency
@@ -145,6 +153,10 @@ if __name__ == '__main__':
    if (args.max_channels_to_process < num_chans and args.max_channels_to_process > 0):
         num_chans=args.max_channels_to_process
 
+   window_dur=args.window_dur	
+   jiggling_length=args.jiggling_length
+   window_overlap=args.window_overlap
+   window_loop_step=window_dur-window_overlap
 
    worker_processes=[]
 
@@ -157,8 +169,14 @@ if __name__ == '__main__':
    coherence_states={}
 
    #Calculates number of windows per process (each child process will process the same number of windows)
-   num_windows=tot_time//WINDOW_DUR
-   tot_time=num_windows*WINDOW_DUR
+   if tot_time < window_dur:
+       num_windows=0
+   else:
+       num_windows=(tot_time-window_dur)//window_loop_step+1
+   if num_windows == 0:
+       tot_time=0
+   else:
+       tot_time=(num_windows-1)*window_loop_step+window_dur
    num_windows_per_process=num_windows//MAX_CONCURRENT_PROCESSES
    if (num_windows % MAX_CONCURRENT_PROCESSES !=0):
       num_windows_per_process += 1
@@ -173,27 +191,32 @@ if __name__ == '__main__':
    #initiate multi-processing
    #Starts each child process (on certain number of windows (see above))
    window_counter=0
-   prevWindStartTime=0
-   for wind_start_time0 in range(0, tot_time , WINDOW_DUR): #iterate through all full time windows
+   prevProcessEndWindow=0
+   prevProcessEndTime=0
+   for wind_start_time0 in range(0, tot_time-window_dur+1 , window_loop_step): #iterate through all full time windows
       if window_counter==num_windows_per_process:
-         request_coherence_some_windows_all_channels(data,prevWindStartTime, wind_start_time0, tot_time, num_chans, WINDOW_DUR, JIGGLING_LENGTH, sampling_frequency, debug_mode, coh_arrays,worker_processes)
-         prevWindStartTime=wind_start_time0
+         processEndTime=wind_start_time0-window_loop_step+window_dur
+         request_coherence_some_windows_all_channels(data,prevProcessEndWindow,prevProcessEndTime, processEndTime, tot_time, num_chans, window_dur, jiggling_length, window_loop_step, sampling_frequency, debug_mode, coh_arrays,worker_processes)
+         prevProcessEndTime=wind_start_time0
+         prevProcessEndWindow+=num_windows_per_process
          window_counter=0
       window_counter += 1
-   request_coherence_some_windows_all_channels(data,prevWindStartTime, wind_start_time0+WINDOW_DUR, tot_time, num_chans, WINDOW_DUR, JIGGLING_LENGTH, sampling_frequency, debug_mode, coh_arrays,worker_processes)
+   request_coherence_some_windows_all_channels(data,prevProcessEndWindow,prevProcessEndTime, wind_start_time0+window_dur, tot_time, num_chans, window_dur, jiggling_length, window_loop_step, sampling_frequency, debug_mode, coh_arrays,worker_processes)
 
    wait_for_results(worker_processes)
 
    #fill numpy array with results
    coh_vals_allWinds_allChans = []
    window_index = 0
-   for wind_start_time0 in range(0, tot_time-WINDOW_DUR+1 , WINDOW_DUR): #iterate through all full time windows
+   for wind_start_time0 in range(0, tot_time-window_dur+1 , window_loop_step): #iterate through all full time windows
        coh_vals_currWind_allChans = []
        chan_pair_index = 0
        for chan_ind0 in range(0,num_chans): #iterate through all channels
            coh_vals_currWind_currChan = []
            for chan_ind1 in range(0,num_chans): #iterate through all channels
                coh_val_currPair = coh_arrays[chan_pair_index][window_index]
+               if (coh_val_currPair==0):
+                    print ("window_index=",window_index)
                chan_pair_index += 1
                coh_vals_currWind_currChan.append(coh_val_currPair)
            coh_vals_currWind_allChans.append(coh_vals_currWind_currChan)
@@ -207,7 +230,7 @@ if __name__ == '__main__':
       np.save(args.output_data_dir+args.output_matrix_file, coh_vals_allWinds_allChans)
 
    #print final 3D coh array
-   print(coh_vals_allWinds_allChans)
+   #print(coh_vals_allWinds_allChans)
    print ("done printing matrix at ", datetime. now())
 
    if args.plot_matrices_across_time:
@@ -217,11 +240,10 @@ if __name__ == '__main__':
        #Each fig is saved to its own file
        #A movie can be made from the consecutive fig images
        coh_allWinds_allChans =coh_vals_allWinds_allChans
-       num_winds = int(tot_time/WINDOW_DUR)
        fig_num = 1
-       for wind_mat_ind in range(num_winds):
+       for wind_mat_ind in range(num_windows):
            #Set title of curr fig
-           title = str(wind_mat_ind*LOOP_STEP)+" to "+str(wind_mat_ind*LOOP_STEP+WINDOW_DUR)+" ms"
+           title = str(wind_mat_ind*window_loop_step)+" to "+str(wind_mat_ind*window_loop_step+window_dur)+" ms"
 
            #Label axes of curr fig
            ax_labels = [str(0), str(int(num_chans/2)), str(num_chans)]
